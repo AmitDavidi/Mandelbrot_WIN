@@ -13,25 +13,57 @@ path = os.path.join(cwd + "\myf.dll")
 
 # c_funcs = WinDLL("C:\\Users\\amitd\\PProjects\\New_mandlebrot\\myf.dll")
 c_funcs = WinDLL(path)
+
 c_funcs.map_num.argtypes = [c_double, c_double, c_double, c_double]
-c_funcs.does_converge.argtypes = [c_double, c_double, c_int]
+c_funcs.does_converge.argtypes = [c_double, c_double, c_int, c_int, c_int]
 c_funcs.does_converge.restype = c_double
 c_funcs.map_num.restype = c_double
 
 pygame.init()
 consts = {
-    "WIDTH": 360,
-    'HEIGHT': 360,
+    "WIDTH": 500,
+    'HEIGHT': 500,
     'MAX_ITERATIONS': 1000}
+
+""""
+replaced by C- function
+def is_converge(x, y, iterations):
+    i = 0
+    # first gen is x + iy
+    z_n_imaginary = y
+    z_n_real = x
+    while i < iterations:
+        # imaginary of next gen = old gen squared + y - imaginary part
+        new_z_n_imaginary = 2 * z_n_real * z_n_imaginary + y
+        # real of next gen = old gen squared + x - real part
+        new_z_n_real = z_n_real * z_n_real - z_n_imaginary * z_n_imaginary + x
+        z_n_real = new_z_n_real
+        z_n_imaginary = new_z_n_imaginary
+        if (z_n_real * z_n_real + z_n_imaginary * 2) > 4:
+            # diverges
+            color = map2(i, 0, iterations, 10, 250)
+            # return color based on iterations
+            return color, color, color
+        i += 1
+    # converge
+    return 0, 0, 0
+map2(double value, double min, double max, double wanted_min, double wanted_max)
+"""
+
+
+# def c_funcs_map_num(value, Max, wanted_min, wanted_max):
+#    x = c_funcs.map_num(value, Max, wanted_min, wanted_max)
+#    return x
 
 
 def draw_screen(win, screen_matrix):
     pygame.pixelcopy.array_to_surface(win, screen_matrix)
 
 
-
 def main(constants, win, data):
-    colors = [(66, 30, 15),
+
+    colors = [(0, 0, 0),
+              (66, 30, 15),
               (25, 7, 26),
               (9, 1, 47),
               (4, 4, 73),
@@ -46,17 +78,14 @@ def main(constants, win, data):
               (255, 170, 0),
               (204, 128, 0),
               (153, 87, 0),
-              (106, 52, 3)
-
-              ]
-    BLACK = (0, 0, 0)
-    len1 = len(colors)
+              (106, 52, 3)]
 
     # better names for constants
     width = constants['WIDTH']
     height = constants['HEIGHT']
     max_iterations = constants['MAX_ITERATIONS']
-
+    height_range = range(height)
+    width_range = range(width)
     # starting ranges for the Mandelbrot
     x_range = [-2, 2]
     y_range = [-2, 2]
@@ -64,12 +93,16 @@ def main(constants, win, data):
     last_y_range = []
 
     # display calculations
-    screen_matrix = np.zeros((width, height, 3), dtype=np.uint8)
+    screen_matrix = np.zeros((height, width, 3), dtype=np.uint8)
     flag = 1
     # zoom variables
     zoom_counter = 1
     diff = 30
     diff_width = 2 * diff
+
+    # Coloring the set
+    max_color = 250
+    min_color = 0
 
     running = True
     while running:
@@ -107,6 +140,7 @@ def main(constants, win, data):
                     x_range = [mapped_x1, mapped_x2]
                     y_range = [mapped_y1, mapped_y2]
                     flag = 1
+
                 if pygame.mouse.get_pressed(3)[2]:
                     if zoom_counter != 1:
                         x_range = last_x_range.pop(-1)
@@ -116,45 +150,40 @@ def main(constants, win, data):
                 max_iterations = zoom_counter * consts['MAX_ITERATIONS']
 
         if flag:  # draw the picture
-            # start = time.time()
-            x = 0
-            while x < width:
+
+
+            start = time()
+            for x in width_range:
                 mapped_x = c_funcs.map_num(x, width, x_range[0], x_range[1])
-                y = 0
-                while y < height:
+                for y in height_range:
                     mapped_y = c_funcs.map_num(y, height, y_range[0], y_range[1])
 
-                    try:
-                        Smoothed_iters = data[(mapped_x, mapped_y)]
+                    # try:
+                    #     iters_before_bail = data[(mapped_x, mapped_y)]
+                    #
+                    # except KeyError:
 
-                    except KeyError:
-                        Smoothed_iters = c_funcs.does_converge(mapped_x, mapped_y, max_iterations)
+                    # how many iterations did it take to bail out is Smoothed iters
+                    iters_before_bail = c_funcs.does_converge(mapped_x, mapped_y, max_iterations, min_color, max_color)
+                        # data[(mapped_x, mapped_y)] = iters_before_bail
 
-                        data[(mapped_x, mapped_y)] = Smoothed_iters
-                    if Smoothed_iters != -1:  # if not black
+                    # color_index - the index of the color in the color array
+                    color_index = iters_before_bail % 17
+                    next_color_index = (iters_before_bail + 1) % 17
 
-                        # Color_mod_17 - the index of the color in the color array
-                        Color_mod_17 = Smoothed_iters % len1
+                    # how close and how far to the next color - 0 to 1
+                    how_close = color_index % 1
+                    how_far = 1 - how_close
 
-                        # how close and how far to the next color - 0 to 1
-                        how_close = Color_mod_17 % 1
-                        how_far = 1 - how_close
+                    next_color = colors[math.floor(next_color_index)]
+                    this_color = colors[math.floor(color_index)]
 
-                        # most efficient way to round Smoothed_iters to an integer
-                        Smoothed_iters = math.floor(Color_mod_17)
-                        # most efficient - currently known to me to round Smoothed_iters + 1 to be in range
-                        ColorPlus1_Mod_len = (Smoothed_iters + 1) % len1
-
-                        Color = (how_far * colors[Smoothed_iters][0] + how_close * colors[ColorPlus1_Mod_len][0],
-                                 how_far * colors[Smoothed_iters][1] + how_close * colors[ColorPlus1_Mod_len][1],
-                                 how_far * colors[Smoothed_iters][2] + how_close * colors[ColorPlus1_Mod_len][2])
-                    else:
-                        Color = BLACK
+                    Color = (how_far * this_color[0] + how_close * next_color[0],
+                             how_far * this_color[1] + how_close * next_color[1],
+                             how_far * this_color[2] + how_close * next_color[2])
                     screen_matrix[x, y] = Color
 
-                    y += 1
-                x += 1
-            # print(time.time() - start)
+            print(time() - start)
             flag = 0
     return data
 
